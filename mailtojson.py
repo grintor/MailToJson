@@ -4,10 +4,12 @@
 ## (c) 2013 Newsman App
 ## https://github.com/Newsman/MailToJson
 
-import sys, urllib2, email, re, csv, StringIO, base64, json, datetime, pprint
+import sys, urllib.request, urllib.error, urllib.parse, email, re, csv, base64, json, pprint
 from optparse import OptionParser
+from io import StringIO
+from datetime import datetime
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 ERROR_NOUSER = 67
 ERROR_PERM_DENIED = 77
@@ -89,7 +91,7 @@ class MailJson:
 
         ret = []
         for h in v:
-            h = email.Header.decode_header(h)
+            h = email.header.decode_header(h)
             h_ret = []
             for h_decoded in h:
                 hv = h_decoded[0]
@@ -99,12 +101,12 @@ class MailJson:
                 else:
                     h_encoding = h_encoding.lower()
 
-                hv = unicode(hv, h_encoding).strip().strip("\t")
+                hv = str(hv.encode(self.encoding), h_encoding).strip().strip("\t")
 
 
                 h_ret.append(hv.encode(self.encoding))
 
-            ret.append(" ".join(h_ret))
+            ret.append(str(b" ".join(h_ret), self.encoding))
 
         return ret
 
@@ -118,10 +120,10 @@ class MailJson:
         if isinstance(v, list):
             v = ",".join(v)
         v = v.replace("\n", " ").replace("\r", " ").strip()
-        s = StringIO.StringIO(v)
+        s = StringIO(v)
         c = csv.reader(s)
         try:
-            row = c.next()
+            row = next(c)
         except StopIteration:
             return ret
 
@@ -149,52 +151,21 @@ class MailJson:
 
     def _parse_date(self, v):
         if v is None:
-            return datetime.datetime.now()
+            return datetime.now()
 
         tt = email.utils.parsedate_tz(v)
 
         if tt is None:
-            return datetime.datetime.now()
+            return datetime.now()
 
         timestamp = email.utils.mktime_tz(tt)
-        date = datetime.datetime.fromtimestamp(timestamp)
+        date = datetime.fromtimestamp(timestamp)
         return date
-
-    def _get_content_charset(self, part, failobj = None):
-        """Return the charset parameter of the Content-Type header.
-
-        The returned string is always coerced to lower case.  If there is no
-        Content-Type header, or if that header has no charset parameter,
-        failobj is returned.
-        """
-        missing = object()
-        charset = part.get_param("charset", missing)
-        if charset is missing:
-            return failobj
-        if isinstance(charset, tuple):
-            # RFC 2231 encoded, so decode it, and it better end up as ascii.
-            pcharset = charset[0] or "us-ascii"
-            try:
-                # LookupError will be raised if the charset isn't known to
-                # Python.  UnicodeError will be raised if the encoded text
-                # contains a character not in the charset.
-                charset = unicode(charset[2], pcharset).encode("us-ascii")
-            except (LookupError, UnicodeError):
-                charset = charset[2]
-        # charset character must be in us-ascii range
-        try:
-            if isinstance(charset, unicode):
-                charset = charset.encode("us-ascii")
-            charset = unicode(charset, "us-ascii").encode("us-ascii")
-        except UnicodeError:
-            return failobj
-        # RFC 2046, $4.1.2 says charsets are not case sensitive
-        return charset.lower()
 
     def _get_part_headers(self, part):
         # raw headers
         headers = {}
-        for k in part.keys():
+        for k in list(part.keys()):
             k = k.lower()
             v = part.get_all(k)
             v = self._decode_headers(v)
@@ -207,7 +178,11 @@ class MailJson:
         return headers
 
     def parse(self):
-        self.msg = email.message_from_string(self.content)
+        self.msg = email.message_from_bytes(bytes(self.content, 'utf-8'))
+        
+        content_charset = self.msg.get_content_charset()
+        if content_charset == None:
+            content_charset = 'utf-8'
 
         headers = self._get_part_headers(self.msg)
         self.data["headers"] = headers
@@ -237,7 +212,7 @@ class MailJson:
                 attachments.append(a)
             else:
                 try:
-                    p = { "content_type": part.get_content_type(), "content": unicode(part.get_payload(decode = 1), self._get_content_charset(part, "utf-8"), "ignore").encode(self.encoding), "headers": self._get_part_headers(part) }
+                    p = { "content_type": part.get_content_type(), "content": str(part.get_payload(decode = 1), content_charset, "ignore"), "headers": self._get_part_headers(part) }
                     parts.append(p)
                     self.raw_parts.append(part)
                 except LookupError:
@@ -266,7 +241,7 @@ if __name__ == "__main__":
     opt, args = parser.parse_args()
 
     if not opt.url and not opt.do_print:
-        print parser.format_help()
+        print(parser.format_help())
         sys.exit(1)
 
     content = sys.stdin.read()
@@ -277,16 +252,16 @@ if __name__ == "__main__":
         data = mj.get_data()
 
         if opt.do_print:
-            print(json.dumps(data, encoding = data.get("encoding")))
+            print((json.dumps(data, ensure_ascii = False)))
         else:
             headers = { "Content-Type": "application/json; charset=%s" % data.get("encoding"), "User-Agent": "NewsmanApp/MailToJson %s - https://github.com/Newsman/MailToJson" % VERSION }
-            req = urllib2.Request(opt.url, json.dumps(data, encoding = data.get("encoding")), headers)
-            resp = urllib2.urlopen(req)
+            req = urllib.request.Request(opt.url, json.dumps(data, encoding = data.get("encoding")), headers)
+            resp = urllib.request.urlopen(req)
             ret = resp.read()
 
-            print "Parsed Mail Data sent to: %s\n" % opt.url
+            print("Parsed Mail Data sent to: %s\n" % opt.url)
             if opt.do_dump:
-                print ret
-    except Exception, inst:
-        print "ERR: %s" % inst
+                print(ret)
+    except Exception as inst:
+        print("ERR: %s" % inst)
         sys.exit(ERROR_TEMP_FAIL)
