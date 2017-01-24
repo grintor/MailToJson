@@ -4,7 +4,7 @@
 ## (c) 2013 Newsman App
 ## https://github.com/Newsman/MailToJson
 
-import sys, urllib.request, urllib.error, urllib.parse, email, re, csv, base64, json, pprint
+import sys, urllib.request, email, re, csv, base64, json, pprint
 from optparse import OptionParser
 from io import StringIO
 from datetime import datetime
